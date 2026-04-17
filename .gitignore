@@ -31,3 +31,4 @@ reports/
 .cache/
 .vscode/settings.json
 .env
+/gen-client
