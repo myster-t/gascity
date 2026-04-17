@@ -296,13 +296,13 @@ func configureBeadRouteState(t *testing.T) (*fakeState, *prefixedAliasStore, *pr
 
 func TestBeadCRUD(t *testing.T) {
 	state := newFakeState(t)
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
 	// Create a bead.
 	body := `{"rig":"myrig","title":"Fix login bug","type":"task"}`
-	req := newPostRequest("/v0/beads", bytes.NewBufferString(body))
+	req := newPostRequest(cityURL(state, "/beads"), bytes.NewBufferString(body))
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create status = %d, want %d, body: %s", rec.Code, http.StatusCreated, rec.Body.String())
@@ -318,9 +318,9 @@ func TestBeadCRUD(t *testing.T) {
 	}
 
 	// Get the bead.
-	req = httptest.NewRequest("GET", "/v0/bead/"+created.ID, nil)
+	req = httptest.NewRequest("GET", cityURL(state, "/bead/")+created.ID, nil)
 	rec = httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get status = %d, want %d", rec.Code, http.StatusOK)
@@ -333,18 +333,18 @@ func TestBeadCRUD(t *testing.T) {
 	}
 
 	// Close the bead.
-	req = newPostRequest("/v0/bead/"+created.ID+"/close", nil)
+	req = newPostRequest(cityURL(state, "/bead/")+created.ID+"/close", nil)
 	rec = httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("close status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
 	// Verify closed.
-	req = httptest.NewRequest("GET", "/v0/bead/"+created.ID, nil)
+	req = httptest.NewRequest("GET", cityURL(state, "/bead/")+created.ID, nil)
 	rec = httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	json.NewDecoder(rec.Body).Decode(&got) //nolint:errcheck
 	if got.Status != "closed" {
@@ -358,12 +358,12 @@ func TestBeadListFiltering(t *testing.T) {
 	store.Create(beads.Bead{Title: "Open task", Type: "task"})                           //nolint:errcheck
 	store.Create(beads.Bead{Title: "Message", Type: "message"})                          //nolint:errcheck
 	store.Create(beads.Bead{Title: "Labeled", Type: "task", Labels: []string{"urgent"}}) //nolint:errcheck
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
 	// Filter by type.
-	req := httptest.NewRequest("GET", "/v0/beads?type=message", nil)
+	req := httptest.NewRequest("GET", cityURL(state, "/beads?type=message"), nil)
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	var resp struct {
 		Items []beads.Bead `json:"items"`
@@ -375,9 +375,9 @@ func TestBeadListFiltering(t *testing.T) {
 	}
 
 	// Filter by label.
-	req = httptest.NewRequest("GET", "/v0/beads?label=urgent", nil)
+	req = httptest.NewRequest("GET", cityURL(state, "/beads?label=urgent"), nil)
 	rec = httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	json.NewDecoder(rec.Body).Decode(&resp) //nolint:errcheck
 	if resp.Total != 1 {
@@ -392,11 +392,11 @@ func TestBeadListCrossRig(t *testing.T) {
 
 	state.stores["myrig"].Create(beads.Bead{Title: "Bead from rig1"}) //nolint:errcheck
 	store2.Create(beads.Bead{Title: "Bead from rig2"})                //nolint:errcheck
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
-	req := httptest.NewRequest("GET", "/v0/beads", nil)
+	req := httptest.NewRequest("GET", cityURL(state, "/beads"), nil)
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	var resp struct {
 		Items []beads.Bead `json:"items"`
@@ -410,11 +410,11 @@ func TestBeadListCrossRig(t *testing.T) {
 
 func TestBeadGetNotFound(t *testing.T) {
 	state := newFakeState(t)
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
-	req := httptest.NewRequest("GET", "/v0/bead/nonexistent", nil)
+	req := httptest.NewRequest("GET", cityURL(state, "/bead/nonexistent"), nil)
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
@@ -427,11 +427,11 @@ func TestBeadGetUsesRoutePrefixStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create(beta): %v", err)
 	}
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
-	req := httptest.NewRequest("GET", "/v0/bead/"+created.ID, nil)
+	req := httptest.NewRequest("GET", cityURL(state, "/bead/")+created.ID, nil)
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body: %s", rec.Code, http.StatusOK, rec.Body.String())
@@ -458,11 +458,11 @@ func TestBeadReady(t *testing.T) {
 	store.Create(beads.Bead{Title: "Open"}) //nolint:errcheck
 	b2, _ := store.Create(beads.Bead{Title: "Closed"})
 	store.Close(b2.ID) //nolint:errcheck
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
-	req := httptest.NewRequest("GET", "/v0/beads/ready", nil)
+	req := httptest.NewRequest("GET", cityURL(state, "/beads/ready"), nil)
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	var resp struct {
 		Items []beads.Bead `json:"items"`
@@ -478,13 +478,13 @@ func TestBeadUpdate(t *testing.T) {
 	state := newFakeState(t)
 	store := state.stores["myrig"]
 	b, _ := store.Create(beads.Bead{Title: "Test"})
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
 	desc := "updated description"
 	body := `{"description":"` + desc + `","labels":["new-label"]}`
-	req := newPostRequest("/v0/bead/"+b.ID+"/update", bytes.NewBufferString(body))
+	req := newPostRequest(cityURL(state, "/bead/")+b.ID+"/update", bytes.NewBufferString(body))
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d", rec.Code, http.StatusOK)
@@ -506,12 +506,12 @@ func TestBeadUpdateUsesRoutePrefixStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create(beta): %v", err)
 	}
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
 	body := `{"description":"updated via route"}`
-	req := newPostRequest("/v0/bead/"+created.ID+"/update", bytes.NewBufferString(body))
+	req := newPostRequest(cityURL(state, "/bead/")+created.ID+"/update", bytes.NewBufferString(body))
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body: %s", rec.Code, http.StatusOK, rec.Body.String())
@@ -542,11 +542,11 @@ func TestBeadDepsUsesRoutePrefixStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create(child): %v", err)
 	}
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
-	req := httptest.NewRequest("GET", "/v0/bead/"+parent.ID+"/deps", nil)
+	req := httptest.NewRequest("GET", cityURL(state, "/bead/")+parent.ID+"/deps", nil)
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body: %s", rec.Code, http.StatusOK, rec.Body.String())
@@ -582,11 +582,11 @@ func TestBeadDepsIncludesMetadataAttachments(t *testing.T) {
 	if err := betaStore.SetMetadata(parent.ID, "molecule_id", attached.ID); err != nil {
 		t.Fatalf("SetMetadata(molecule_id): %v", err)
 	}
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
-	req := httptest.NewRequest("GET", "/v0/bead/"+parent.ID+"/deps", nil)
+	req := httptest.NewRequest("GET", cityURL(state, "/bead/")+parent.ID+"/deps", nil)
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body: %s", rec.Code, http.StatusOK, rec.Body.String())
@@ -610,14 +610,14 @@ func TestBeadPatchAlias(t *testing.T) {
 	state := newFakeState(t)
 	store := state.stores["myrig"]
 	b, _ := store.Create(beads.Bead{Title: "Test"})
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
 	desc := "patched"
 	body := `{"description":"` + desc + `"}`
-	req := httptest.NewRequest("PATCH", "/v0/bead/"+b.ID, bytes.NewBufferString(body))
+	req := httptest.NewRequest("PATCH", cityURL(state, "/bead/")+b.ID, bytes.NewBufferString(body))
 	req.Header.Set("X-GC-Request", "true")
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH status = %d, want %d, body: %s", rec.Code, http.StatusOK, rec.Body.String())
@@ -633,12 +633,12 @@ func TestBeadUpdatePriority(t *testing.T) {
 	state := newFakeState(t)
 	store := state.stores["myrig"]
 	b, _ := store.Create(beads.Bead{Title: "Test"})
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
 	body := `{"priority":1}`
-	req := newPostRequest("/v0/bead/"+b.ID+"/update", bytes.NewBufferString(body))
+	req := newPostRequest(cityURL(state, "/bead/")+b.ID+"/update", bytes.NewBufferString(body))
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d", rec.Code, http.StatusOK)
@@ -662,12 +662,12 @@ func TestBeadUpdateNullPriorityIsNoOp(t *testing.T) {
 	store := state.stores["myrig"]
 	priority := 1
 	b, _ := store.Create(beads.Bead{Title: "Test", Priority: &priority})
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
 	body := `{"priority":null}`
-	req := newPostRequest("/v0/bead/"+b.ID+"/update", bytes.NewBufferString(body))
+	req := newPostRequest(cityURL(state, "/bead/")+b.ID+"/update", bytes.NewBufferString(body))
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d", rec.Code, http.StatusOK)
@@ -684,12 +684,12 @@ func TestBeadReopen(t *testing.T) {
 	store := state.stores["myrig"]
 	b, _ := store.Create(beads.Bead{Title: "Closed task"})
 	store.Close(b.ID) //nolint:errcheck
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
 	// Reopen the closed bead.
-	req := newPostRequest("/v0/bead/"+b.ID+"/reopen", nil)
+	req := newPostRequest(cityURL(state, "/bead/")+b.ID+"/reopen", nil)
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reopen status = %d, want %d, body: %s", rec.Code, http.StatusOK, rec.Body.String())
@@ -706,11 +706,11 @@ func TestBeadReopenNotClosed(t *testing.T) {
 	state := newFakeState(t)
 	store := state.stores["myrig"]
 	b, _ := store.Create(beads.Bead{Title: "Open task"})
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
-	req := newPostRequest("/v0/bead/"+b.ID+"/reopen", nil)
+	req := newPostRequest(cityURL(state, "/bead/")+b.ID+"/reopen", nil)
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusConflict {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusConflict)
@@ -721,12 +721,12 @@ func TestBeadAssign(t *testing.T) {
 	state := newFakeState(t)
 	store := state.stores["myrig"]
 	b, _ := store.Create(beads.Bead{Title: "Task"})
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
 	body := `{"assignee":"worker-1"}`
-	req := newPostRequest("/v0/bead/"+b.ID+"/assign", bytes.NewBufferString(body))
+	req := newPostRequest(cityURL(state, "/bead/")+b.ID+"/assign", bytes.NewBufferString(body))
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("assign status = %d, want %d, body: %s", rec.Code, http.StatusOK, rec.Body.String())
@@ -742,12 +742,12 @@ func TestBeadDelete(t *testing.T) {
 	state := newFakeState(t)
 	store := state.stores["myrig"]
 	b, _ := store.Create(beads.Bead{Title: "To delete"})
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
-	req := httptest.NewRequest("DELETE", "/v0/bead/"+b.ID, nil)
+	req := httptest.NewRequest("DELETE", cityURL(state, "/bead/")+b.ID, nil)
 	req.Header.Set("X-GC-Request", "true")
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete status = %d, want %d, body: %s", rec.Code, http.StatusOK, rec.Body.String())
@@ -762,12 +762,12 @@ func TestBeadDelete(t *testing.T) {
 
 func TestBeadDeleteNotFound(t *testing.T) {
 	state := newFakeState(t)
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
-	req := httptest.NewRequest("DELETE", "/v0/bead/nonexistent", nil)
+	req := httptest.NewRequest("DELETE", cityURL(state, "/bead/nonexistent"), nil)
 	req.Header.Set("X-GC-Request", "true")
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
@@ -776,12 +776,12 @@ func TestBeadDeleteNotFound(t *testing.T) {
 
 func TestBeadCreateValidation(t *testing.T) {
 	state := newFakeState(t)
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
 	// Missing title.
-	req := newPostRequest("/v0/beads", bytes.NewBufferString(`{"rig":"myrig"}`))
+	req := newPostRequest(cityURL(state, "/beads"), bytes.NewBufferString(`{"rig":"myrig"}`))
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnprocessableEntity)
@@ -797,11 +797,11 @@ func TestPackList(t *testing.T) {
 			Path:   "packs/gastown",
 		},
 	}
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
-	req := httptest.NewRequest("GET", "/v0/packs", nil)
+	req := httptest.NewRequest("GET", cityURL(state, "/packs"), nil)
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -824,11 +824,11 @@ func TestPackList(t *testing.T) {
 
 func TestPackListEmpty(t *testing.T) {
 	state := newFakeState(t)
-	srv := New(state)
+	h := newTestCityHandler(t, state)
 
-	req := httptest.NewRequest("GET", "/v0/packs", nil)
+	req := httptest.NewRequest("GET", cityURL(state, "/packs"), nil)
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
